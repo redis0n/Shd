@@ -1,13 +1,15 @@
-# remote_control.py
-# Запустить на ПК жертвы: python remote_control.py
-
+# remote_control.py - Полностью рабочий код для Windows
 from flask import Flask, request, render_template_string
-import subprocess
+from pynput.keyboard import Controller as KeyboardController, Key
+from pynput.mouse import Controller as MouseController, Button
 import platform
+import threading
 
 app = Flask(__name__)
+keyboard = KeyboardController()
+mouse = MouseController()
 
-# HTML + CSS + JavaScript
+# HTML + CSS + JavaScript (интерфейс)
 HTML = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -121,7 +123,7 @@ HTML = """
         <div class="key" onclick="sendKey('8')">8</div>
         <div class="key" onclick="sendKey('9')">9</div>
         <div class="key" onclick="sendKey('0')">0</div>
-        
+
         <div class="key" onclick="sendKey('q')">q</div>
         <div class="key" onclick="sendKey('w')">w</div>
         <div class="key" onclick="sendKey('e')">e</div>
@@ -132,7 +134,7 @@ HTML = """
         <div class="key" onclick="sendKey('i')">i</div>
         <div class="key" onclick="sendKey('o')">o</div>
         <div class="key" onclick="sendKey('p')">p</div>
-        
+
         <div class="key" onclick="sendKey('a')">a</div>
         <div class="key" onclick="sendKey('s')">s</div>
         <div class="key" onclick="sendKey('d')">d</div>
@@ -142,7 +144,7 @@ HTML = """
         <div class="key" onclick="sendKey('j')">j</div>
         <div class="key" onclick="sendKey('k')">k</div>
         <div class="key" onclick="sendKey('l')">l</div>
-        
+
         <div class="key" onclick="sendKey('z')">z</div>
         <div class="key" onclick="sendKey('x')">x</div>
         <div class="key" onclick="sendKey('c')">c</div>
@@ -150,7 +152,7 @@ HTML = """
         <div class="key" onclick="sendKey('b')">b</div>
         <div class="key" onclick="sendKey('n')">n</div>
         <div class="key" onclick="sendKey('m')">m</div>
-        
+
         <div class="key special" onclick="sendKey('space')">␣ Пробел</div>
         <div class="key special" onclick="sendKey('enter')">↵ Enter</div>
         <div class="key special" onclick="sendKey('backspace')">⌫ Backspace</div>
@@ -161,7 +163,7 @@ HTML = """
         <div class="key special" onclick="sendKey('left')">←</div>
         <div class="key special" onclick="sendKey('right')">→</div>
     </div>
-    
+
     <div style="margin-top: 20px;">
         <input type="text" id="customText" placeholder="Любой текст...">
         <button onclick="sendCustomText()">Отправить текст</button>
@@ -265,7 +267,6 @@ def index():
 def key_press():
     key = request.json.get('key')
     if key:
-        # Отправка клавиши на ПК
         send_key_to_system(key)
     return '', 204
 
@@ -273,84 +274,74 @@ def key_press():
 def type_text():
     text = request.json.get('text', '')
     if text:
-        for ch in text:
-            send_key_to_system(ch)
+        keyboard.type(text)  # pynput умеет печатать текст целиком
     return '', 204
 
 @app.route('/mouse', methods=['POST'])
 def mouse_move():
     dx = request.json.get('dx', 0)
     dy = request.json.get('dy', 0)
-    move_mouse(dx, dy)
+    # Получаем текущую позицию мыши и перемещаем
+    x, y = mouse.position
+    mouse.position = (x + dx, y + dy)
     return '', 204
 
 @app.route('/click', methods=['POST'])
 def mouse_click():
     button = request.json.get('button', 'left')
-    click_mouse(button)
+    btn_map = {
+        'left': Button.left,
+        'right': Button.right,
+        'middle': Button.middle
+    }
+    mouse.click(btn_map.get(button, Button.left))
     return '', 204
 
 @app.route('/scroll', methods=['POST'])
 def mouse_scroll():
     direction = request.json.get('dir', 'down')
-    scroll_mouse(direction)
+    # pynput: положительное значение = вверх, отрицательное = вниз
+    scroll_amount = 120 if direction == 'up' else -120
+    mouse.scroll(0, scroll_amount)
     return '', 204
 
 def send_key_to_system(key):
-    """Отправка клавиши в ОС"""
-    key_map = {
-        'space': 'space', 'enter': 'enter', 'backspace': 'backspace',
-        'tab': 'tab', 'escape': 'escape', 'up': 'up', 'down': 'down',
-        'left': 'left', 'right': 'right'
+    """Отправка клавиши через pynput"""
+    # Специальные клавиши
+    special_keys = {
+        'enter': Key.enter,
+        'space': Key.space,
+        'backspace': Key.backspace,
+        'tab': Key.tab,
+        'escape': Key.esc,
+        'up': Key.up,
+        'down': Key.down,
+        'left': Key.left,
+        'right': Key.right
     }
-    if key in key_map:
-        real_key = key_map[key]
-    else:
-        real_key = key
     
-    system = platform.system()
-    if system == 'Windows':
-        # Через PowerShell
-        import ctypes
-        ctypes.windll.user32.keybd_event(ord(real_key[0]), 0, 0, 0)
-        ctypes.windll.user32.keybd_event(ord(real_key[0]), 0, 2, 0)
+    if key in special_keys:
+        keyboard.press(special_keys[key])
+        keyboard.release(special_keys[key])
+    elif len(key) == 1:
+        # Обычная клавиша
+        keyboard.press(key)
+        keyboard.release(key)
     else:
-        # Linux/Mac через xdotool (требуется установка)
-        import subprocess
-        subprocess.run(['xdotool', 'type', real_key])
-
-def move_mouse(dx, dy):
-    system = platform.system()
-    if system == 'Windows':
-        import ctypes
-        ctypes.windll.user32.mouse_event(0x0001, int(dx), int(dy), 0, 0)
-    else:
-        import subprocess
-        subprocess.run(['xdotool', 'mousemove_relative', '--', str(int(dx)), str(int(dy))])
-
-def click_mouse(button):
-    btn_code = {'left': 0x0002, 'right': 0x0008, 'middle': 0x0020}
-    system = platform.system()
-    if system == 'Windows':
-        import ctypes
-        ctypes.windll.user32.mouse_event(btn_code.get(button, 0x0002), 0, 0, 0, 0)
-        ctypes.windll.user32.mouse_event(btn_code.get(button, 0x0002), 0, 0, 2, 0)
-    else:
-        import subprocess
-        subprocess.run(['xdotool', 'click', '1' if button == 'left' else '3' if button == 'right' else '2'])
-
-def scroll_mouse(direction):
-    system = platform.system()
-    if system == 'Windows':
-        import ctypes
-        ctypes.windll.user32.mouse_event(0x0800, 0, 0, 120 if direction == 'up' else -120, 0)
-    else:
-        import subprocess
-        subprocess.run(['xdotool', 'click', '4' if direction == 'up' else '5'])
+        # На случай, если пришло что-то другое
+        keyboard.type(key)
 
 if __name__ == '__main__':
+    import socket
+    hostname = socket.gethostname()
+    local_ip = socket.gethostbyname(hostname)
+    
     print("="*50)
     print("УДАЛЁННОЕ УПРАВЛЕНИЕ ЗАПУЩЕНО")
-    print("Подключитесь с телефона по адресу: http://IP_ПК:5000")
+    print(f"Подключитесь с телефона по адресу: http://{local_ip}:5000")
+    print("Или с этого же ПК: http://localhost:5000")
     print("="*50)
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    print("⚠️  Для выхода нажмите Ctrl+C")
+    print("="*50)
+    
+    app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
