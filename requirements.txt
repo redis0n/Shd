@@ -1,0 +1,1 @@
+pip install flask pynput mss pillow psutil pywin32 winshell cryptography
